@@ -719,7 +719,7 @@ class Dataset(Dataset):
     def __getitem__(self, index):
         path = self.paths[index]
         img = Image.open(path)
-        return self.transform(img)
+        return self.transform(img)#, path
 
 # trainer class
 
