@@ -23,6 +23,9 @@ from ema_pytorch import EMA
 
 from accelerate import Accelerator
 
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 # constants
 
 ModelPrediction =  namedtuple('ModelPrediction', ['pred_noise', 'pred_x_start'])
