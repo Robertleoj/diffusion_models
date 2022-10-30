@@ -1,4 +1,5 @@
 
+from mimetypes import init
 import torch.nn as nn
 import torch
 from torch.utils.data import Dataset
@@ -12,23 +13,18 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 class ClassEncoding():
-    def __init__(self, img_size, channels, classes):
+    def __init__(self, cond_dim, class_to_idx):
         super().__init__()
-        
-        self.class_to_idx = {c: i for i, c in enumerate(sorted(classes))}
-        self.idx_to_class = sorted(classes)
-        
-        self.channels = channels
-        self.img_size = img_size
+        self.class_to_idx = class_to_idx
+        self.embedder = nn.Embedding(len(self.class_to_idx), cond_dim)
 
-        self.embedder = nn.Embedding(len(self.idx_to_class), img_size ** 2)
+        self.embedder.requires_grad_(False)
 
     def encode(self, klass):
 
         idx = torch.tensor([self.class_to_idx[klass]], dtype=torch.long)
-        emb = self.embedder(idx).view((1, self.img_size, -1))
 
-        return torch.cat(tuple((emb.clone() for _ in range(self.channels))), dim=0)
+        return self.embedder(idx)[0]
 
 
 class ClassCondDataset(Dataset):
@@ -36,17 +32,19 @@ class ClassCondDataset(Dataset):
         self,
         folder,
         image_size,
-        classes,
-        channels=3,
+        embedder,
         exts = ['jpg', 'jpeg', 'png', 'tiff'],
         augment_horizontal_flip = True,
     ):
         super().__init__()
         self.folder = folder
         self.image_size = image_size
+
         self.paths = [p for ext in exts for p in Path(f'{folder}').glob(f'**/*.{ext}')]
 
-        self.embedder = ClassEncoding(image_size, channels, classes)
+        self.embedder = embedder
+        # self.embedder = ClassEncoding(cond_dim, classes)
+
 
         self.transform = T.Compose([
             T.Resize(image_size),
@@ -58,31 +56,34 @@ class ClassCondDataset(Dataset):
     def __len__(self):
         return len(self.paths)
 
-    def __getitem__(self, index, with_embedding=True):
+    def __getitem__(self, index):
         path = self.paths[index]
 
         klass = os.path.split(os.path.split(path)[-2])[-1]
         img = Image.open(path)
         img = self.transform(img)
 
-        if with_embedding:
-            enc = self.embedder.encode(klass)
-            img = torch.cat((enc, img), dim=0)
+        enc = self.embedder.encode(klass)
 
-        return img
+        return img, enc
 
+def init_bird_encoder(cond_dim, classes):
+    class_to_idx = {c: i for i, c in enumerate(sorted(classes))}
 
-def get_bird_dataset(root, img_size):
-    with open(f'{root}/classes.txt', 'r') as f:
-        classes = [l.strip() for l in f.readlines()]
+    embedder = ClassEncoding(cond_dim, class_to_idx)
+
+    return embedder, class_to_idx
+
+def get_bird_dataset(root, img_size, classes, cond_dim):
+
+    embedder, class_to_idx = init_bird_encoder(cond_dim, classes)
 
     bird_ds = ClassCondDataset(
         folder=root, 
         image_size=img_size,
-        classes=classes,
-        channels=3,
+        embedder=embedder,
     )
 
-    return bird_ds
+    return bird_ds, embedder, class_to_idx
 
 
