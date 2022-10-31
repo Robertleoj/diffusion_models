@@ -1,35 +1,23 @@
-# Cell
 from birb_dataset import get_bird_dataset
 from denoising_diffusion_pytorch import GaussianDiffusion, Unet, Trainer
 from birb_dataset import get_stl10_dataset
 from birb_dataset import get_animals_10n
 
-# Cell
-IMAGE_SIZE = 64
+IMAGE_SIZE = 128
 CONDITION_DIM = 256
-CONDITIONING_WEIGHTS=(1, 4)
-BATCH_SIZE = 16
-# ROOT = './data/birds'
+CONDITIONING_WEIGHTS=(0.2, 0.8)
+BATCH_SIZE = 4
+
 ROOT = './data/animals'
 RESULTS_FOLDER='./results/animals_cond'
 
 with open(f'{ROOT}/classes.txt', 'r') as f:
     CLASSES = [l.strip() for l in f.readlines()]
 
-
-# Cell
-
-
-# Cell
 ds, class_to_idx = get_bird_dataset(ROOT, IMAGE_SIZE, CLASSES, CONDITION_DIM)
 
+print(class_to_idx)
 
-# ds, class_to_idx = get_stl10_dataset(IMAGE_SIZE)
-
-# Cell
-class_to_idx
-
-# Cell
 unet = Unet(
     IMAGE_SIZE, 
     condition_dim=CONDITION_DIM,
@@ -51,13 +39,11 @@ trainer = Trainer(
     train_batch_size=BATCH_SIZE,
     class_to_idx=class_to_idx,
     save_and_sample_every=1000,
-    train_lr=1e-8,
+    train_lr=1e-4,
     num_samples=BATCH_SIZE,
     train_num_steps=10000000000
 )
 
-# Cell
-trainer.load(101)
 trainer.train()
 
 

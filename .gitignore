@@ -3,6 +3,7 @@ results/
 
 # data
 data/
+deepvenv/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

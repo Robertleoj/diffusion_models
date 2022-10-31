@@ -9,7 +9,6 @@ from pathlib import Path
 from torchvision.datasets import STL10
 import os
 from PIL import Image, ImageFile
-import deeplake
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
