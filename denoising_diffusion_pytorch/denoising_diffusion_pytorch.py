@@ -285,6 +285,7 @@ class Attention(nn.Module):
 
 # model
 
+
 class Unet(nn.Module):
     def __init__(
         self,
@@ -295,6 +296,7 @@ class Unet(nn.Module):
         channels = 3,
         self_condition=False,
         condition_dim=None,
+        condition_vocab_size=None,
         resnet_block_groups = 8,
         learned_variance = False,
         learned_sinusoidal_cond = False,
@@ -322,6 +324,7 @@ class Unet(nn.Module):
 
         
         if condition_dim is not None:
+            self.cond_embedder = nn.Embedding(condition_vocab_size,condition_dim)
             self.conditioning_mlp = nn.Sequential(
                 nn.Linear(condition_dim, condition_dim),
                 nn.GELU(),
@@ -382,8 +385,9 @@ class Unet(nn.Module):
         self.final_res_block = block_klass(dim * 2, dim, time_emb_dim = time_dim, condition_dim=condition_dim)
         self.final_conv = nn.Conv2d(dim, self.out_dim, 1)
 
-    def forward(self, x, time, x_self_cond = None, cond_emb=None):
+    def forward(self, x, time, x_self_cond = None, cond=None):
         if self.self_condition:
+
             x_self_cond = default(x_self_cond, lambda: torch.zeros_like(x))
             x = torch.cat((x_self_cond, x), dim = 1)
 
@@ -393,6 +397,10 @@ class Unet(nn.Module):
         t = self.time_mlp(time)
 
         h = []
+
+        cond_emb = None
+        if cond is not None:
+            cond_emb = self.cond_embedder(cond)
 
         for block1, block2, attn, downsample in self.downs:
             x = block1(x, t, cond_emb=cond_emb)
@@ -524,7 +532,7 @@ class GaussianDiffusion(nn.Module):
 
         posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
 
-        # above: equal to 1. / (1. / (1. - alpha_cumprod_tm1) + alpha_t / beta_t)
+        # above: equal to 1. / (1. / (1. - alpha_cumprod_tm1) + alpha_t / beta_timages: tensor containing the imag)
 
         register_buffer('posterior_variance', posterior_variance)
 
@@ -560,7 +568,7 @@ class GaussianDiffusion(nn.Module):
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def model_predictions(self, x, t, x_self_cond = None, clip_x_start = False, c_emb=None):
-        model_output = self.model(x, t, x_self_cond, cond_emb=c_emb)
+        model_output = self.model(x, t, x_self_cond, cond=c_emb)
         maybe_clip = partial(torch.clamp, min = -1., max = 1.) if clip_x_start else identity
 
         if self.objective == 'pred_noise':
@@ -735,7 +743,7 @@ class GaussianDiffusion(nn.Module):
         loss = self.loss_fn(model_out, target, reduction = 'none')
 
         if conditioning is not None:
-            model_out_cond = self.model(x, t, x_self_cond, conditioning)
+            model_out_cond = self.model(x, t, x_self_cond, cond=conditioning)
             loss_cond = self.loss_fn(model_out_cond, target, reduction='none')
 
             loss = self.cond_weight * loss_cond + self.no_cond_weight * loss
@@ -799,10 +807,10 @@ class Trainer(object):
         *,
         folder=None,
         conditioning=False,
-        class_embedder=None,
         class_to_idx=None,
         train_batch_size = 16,
         ds=None,
+        dl=None,
         gradient_accumulate_every = 1,
         augment_horizontal_flip = True,
         train_lr = 1e-4,
@@ -826,14 +834,13 @@ class Trainer(object):
         )
 
         self.conditioning = conditioning
-        self.class_embedder=class_embedder
         self.class_to_idx = class_to_idx
 
         self.accelerator.native_amp = amp
 
         self.model = diffusion_model
 
-        assert has_int_squareroot(num_samples), 'number of samples must have an integer square root'
+        # assert has_int_squareroot(num_samples), 'number of samples must have an integer square root'
         self.num_samples = num_samples
         self.save_and_sample_every = save_and_sample_every
 
@@ -845,7 +852,7 @@ class Trainer(object):
 
         # dataset and dataloader
 
-        if ds is None:
+        if ds is None and dl is None:
             self.ds = Dataset(
                 folder, 
                 self.image_size, 
@@ -853,16 +860,20 @@ class Trainer(object):
                 augment_horizontal_flip, 
                 convert_image_to = convert_image_to
             )
+        elif dl is not None:
+            self.dl = dl
         else:
             self.ds = ds
 
-        dl = DataLoader(
-            self.ds, 
-            batch_size = train_batch_size, 
-            shuffle = True, 
-            pin_memory = True, 
-            num_workers = cpu_count()
-        )
+
+        if dl is None:
+            dl = DataLoader(
+                self.ds, 
+                batch_size = train_batch_size, 
+                shuffle = True, 
+                pin_memory = True, 
+                num_workers = cpu_count()
+            )
 
         dl = self.accelerator.prepare(dl)
         self.dl = cycle(dl)
@@ -991,16 +1002,18 @@ class Trainer(object):
                                 for b in batches:
                                     
 
-                                    rand_classes = random.sample(sorted_classes, b)
+                                    rand_classes = [random.choice(sorted_classes) for _ in  range(b)]
 
-                                    class_embeddings = [
-                                        self.class_embedder.encode(klass).to(device).unsqueeze(0)
+
+                                    class_indices = [
+                                        torch.tensor(self.class_to_idx[klass], dtype=torch.long).view(1)
                                         for klass in rand_classes
                                     ]                                   
 
-                                    class_embeddings = torch.cat(tuple(class_embeddings), dim=0)
 
-                                    images = self.ema.ema_model.sample(batch_size=b, c_emb=class_embeddings)
+                                    classes = torch.cat(tuple(class_indices), dim=0).to(device)
+
+                                    images = self.ema.ema_model.sample(batch_size=b, c_emb=classes)
 
 
                                     imgs_with_class_name = []
