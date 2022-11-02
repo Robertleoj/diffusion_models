@@ -467,7 +467,6 @@ class GaussianDiffusion(nn.Module):
         loss_type = 'l1',
         objective = 'pred_noise',
         beta_schedule = 'cosine',
-        conditioning_weights=None,
         p2_loss_weight_gamma = 0., # p2 loss weight, from https://arxiv.org/abs/2204.00227 - 0 is equivalent to weight of 1 across time - 1. is recommended
         p2_loss_weight_k = 1,
         ddim_sampling_eta = 1.
@@ -476,8 +475,6 @@ class GaussianDiffusion(nn.Module):
         assert not (type(self) == GaussianDiffusion and model.channels != model.out_dim)
         assert not model.learned_sinusoidal_cond
 
-        if conditioning_weights is not None:
-            self.no_cond_weight, self.cond_weight = conditioning_weights
 
         self.model = model
         self.channels = self.model.channels
@@ -738,15 +735,13 @@ class GaussianDiffusion(nn.Module):
         else:
             raise ValueError(f'unknown objective {self.objective}')
 
-        model_out = self.model(x, t, x_self_cond)
 
-        loss = self.loss_fn(model_out, target, reduction = 'none')
-
-        if conditioning is not None:
+        if conditioning is None:
+            model_out = self.model(x, t, x_self_cond)
+            loss = self.loss_fn(model_out, target, reduction = 'none')
+        else:
             model_out_cond = self.model(x, t, x_self_cond, cond=conditioning)
-            loss_cond = self.loss_fn(model_out_cond, target, reduction='none')
-
-            loss = self.cond_weight * loss_cond + self.no_cond_weight * loss
+            loss = self.loss_fn(model_out_cond, target, reduction='none')
 
         loss = reduce(loss, 'b ... -> b (...)', 'mean')
 
@@ -872,7 +867,7 @@ class Trainer(object):
                 batch_size = train_batch_size, 
                 shuffle = True, 
                 pin_memory = True, 
-                num_workers = cpu_count()
+                num_workers = 4
             )
 
         dl = self.accelerator.prepare(dl)

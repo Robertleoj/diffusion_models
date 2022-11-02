@@ -1,6 +1,6 @@
 while :
 do
-	cat train.log 
-	sleep 2
+	cat train_vegetables.log 
+	sleep 3
 	clear
 done

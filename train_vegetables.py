@@ -5,11 +5,10 @@ from birb_dataset import get_animals_10n
 
 IMAGE_SIZE = 128
 CONDITION_DIM = 256
-CONDITIONING_WEIGHTS=(0.2, 0.8)
-BATCH_SIZE = 4
+BATCH_SIZE = 8
 
-ROOT = './data/animals'
-RESULTS_FOLDER='./results/animals_cond'
+ROOT = './data/vegetables'
+RESULTS_FOLDER='./results/vegetables'
 
 with open(f'{ROOT}/classes.txt', 'r') as f:
     CLASSES = [l.strip() for l in f.readlines()]
@@ -27,8 +26,7 @@ unet = Unet(
 diff = GaussianDiffusion(
     unet, 
     image_size=IMAGE_SIZE,
-    timesteps=1000,
-    conditioning_weights=CONDITIONING_WEIGHTS,
+    timesteps=1000
 )
 
 trainer = Trainer(
@@ -39,12 +37,12 @@ trainer = Trainer(
     train_batch_size=BATCH_SIZE,
     class_to_idx=class_to_idx,
     save_and_sample_every=5000,
-    train_lr=1e-7,
+    train_lr=1e-6,
     num_samples=32,
     train_num_steps=10000000000
 )
 
-trainer.load(20)
+trainer.load(4)
 trainer.train()
 
 
